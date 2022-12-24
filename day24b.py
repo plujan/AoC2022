@@ -2,6 +2,9 @@
 
 # I'm doing this the VERY lazy way, just copy and paste three times, and also assuming that the best path to
 # do all three steps is equal to the best path for each subpart, otherwise we're really screwed
+# (On further reflection, that has to be true, because even if it were beneficial to start the second part
+# later, you could just achieve that by waiting for a couple of turns after the best path for the first part,
+# so we are safe.)
 
 # Three-dimensional map: first is time, then coordinates. Also each element of the map is itself a list, to
 # account for multiple blizzards being in a single space.

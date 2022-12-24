@@ -64,6 +64,7 @@ while target_var != 'humn':
     if v[0] in known_vals:
         known_val = known_vals[v[0]]
         target_var = v[1]
+        # target_val = known_val (op) unknown_val, solve for unknown_val
         if v[2] == '+':
             target_val = target_val - known_val
         elif v[2] == '-':
@@ -75,6 +76,7 @@ while target_var != 'humn':
     elif v[1] in known_vals:
         known_val = known_vals[v[1]]
         target_var = v[0]
+        # target_val = unknown_val (op) known_val, solve for unknown_val
         if v[2] == '+':
             target_val = target_val - known_val
         elif v[2] == '-':
