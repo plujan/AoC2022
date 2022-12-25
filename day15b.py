@@ -1,28 +1,53 @@
 #!/usr/bin/env python3
 
+# I tried a bunch of solutions to this problem, but this one is the first one that worked. The trick is that
+# obviously a point-by-point solution like we used for part 1 won't work, but since the excluded regions are
+# always ranges of contiguous numbers, we can just store the excluded ranges. The code for merging ranges when
+# we insert a new one is surprisingly tricky (as you can see below), but once that's all sorted, the code
+# works in a reasonable amount of time.
+
 import re
-import math
 
-# This was my first attempt (well, technically third after a couple of things that obviously didn't work).
-# First it did a lower-resolution scan by dividing it into 2000x2000 blocks, and eliminating blocks there,
-# hopefully leaving few enough possibilities that we can go through them one by one.  This approach almost
-# worked, but it was clear that it needed very careful treatment of blocks that were only partially covered,
-# which the code below didn't quite do. I think a better approach would be to extend the size by a block or
-# two in each direction, just to give a bit of a buffer, and then check for blocks for which the distance to
-# all four corners was less than the beacon distance for the sensor. However, I ended up trying something
-# entirely different instead.
+area_size = 4000000
+excluded_squares = [[] for y in range(area_size+1)]
 
-max_dimension = 4000000
-block_size = 2000
-n_blocks = max_dimension // block_size
+def insert_range(a, xmin, xmax):
+    if a == []:
+        a.append([xmin, xmax])
+        return
+    elif xmin < a[0][0]:
+        a.insert(0, [xmin, xmax])
+        i = 0
+    elif xmin >= a[-1][0]:
+        # skip if this is a subset of the last item
+        if xmax <= a[-1][1]:
+            return
+        a.append([xmin, xmax])
+        i = len(a)-1
+    else:
+        for i in range(len(a)-1):
+            # This range is a subset of a range that already exists, don't bother
+            if xmin >= a[i][0] and xmax <= a[i][1]:
+                return
+            if (xmin > a[i][0] and xmin <= a[i+1][0]) or (xmin == a[i][0] and xmax > a[i][1]):
+                a.insert(i+1, [xmin, xmax])
+                i += 1
+                break
 
-sensors = []
-allowed_squares = []
-for i in range(0, n_blocks+1):
-    allowed_squares.append(set(range(0, n_blocks+1)))
+    # Now check to see if we need to merge with the neighbors.
+    # First see if we need to merge right.
+    if i+1 < len(a) and xmax >= a[i+1][0]-1:
+        j = i+1
+        while j+1 < len(a) and xmax >= a[j+1][0]-1:
+            j = j+1
+        if xmax < a[j][1]:
+            a[i][1] = a[j][1]
+        del a[i+1:j+1]
+    # Now see if we need to merge left.
+    if i > 0 and a[i-1][1] >= xmin - 1:
+        a[i-1][1] = a[i][1]
+        del a[i]
 
-print("Beginning low-resolution scan...")
-    
 with open("day15.txt") as infile:
     for line in infile:
         result = re.search("Sensor at x=(-?\d+), y=(-?\d+): closest beacon is at x=(-?\d+), y=(-?\d+)", line)
@@ -32,48 +57,22 @@ with open("day15.txt") as infile:
             bx = int(result.group(3))
             by = int(result.group(4))
             dist_to_beacon = abs(bx-sx) + abs(by-sy)
-            sensors.append((sx, sy, dist_to_beacon))
-            #print(sx,sy,dist_to_beacon,
-            #      max(0, math.ceil((sy-dist_to_beacon)/block_size)),
-            #      min(n_blocks, math.floor((sy+dist_to_beacon)/block_size))+1)
-                  
-            for y in range(max(0, math.ceil((sy-dist_to_beacon)/block_size)),
-                           min(n_blocks, math.floor((sy+dist_to_beacon)/block_size))+1):
-                y_dist = max((y+1)*block_size-sy, sy-y*block_size)
-                #print(sx, sy, y, y_dist)
-                for x in range(max(0, math.ceil((sx-(dist_to_beacon-y_dist))/block_size)),
-                               min(n_blocks, math.floor((sx+(dist_to_beacon-y_dist))/block_size))+1):
-                    allowed_squares[y].discard(x)
-        else:
-            print("Found malformed line", line)
 
-tot_squares = 0
-for i in range(0, n_blocks+1):
-    tot_squares += len(allowed_squares[i])
-print("Total of", tot_squares, "squares to check at high resolution")
-            
-# Now go through these squares at higher resolution and check to see if they're compatible with the beacons.
-# Basically the same as above but without the reduction applied.
-
-for i in range(0, n_blocks+1):
-    for j in allowed_squares[i]:
-        print("Now checking",i,j)
-
-        xmin = j*block_size
-        xmax = (j+1)*block_size
-        ymin = i*block_size
-        ymax = (i+1)*block_size
-        allowed_squares_fine = {}
-        for k in range(ymin, ymax+1):
-            allowed_squares_fine[k] = set(range(xmin, xmax+1))
-            
-        for (sx, sy, dist_to_beacon) in sensors:
-            for y in range(max(ymin, sy-dist_to_beacon), min(ymax, sy+dist_to_beacon)+1):
+            for y in range(max(0, sy-dist_to_beacon), min(area_size, sy+dist_to_beacon)+1):
                 y_dist = abs(sy-y)
-                for x in range(max(xmin, sx-(dist_to_beacon-y_dist)),
-                               min(xmax, sx+(dist_to_beacon-y_dist))+1):
-                    allowed_squares_fine[y].discard(x)
+                insert_range(excluded_squares[y],
+                             max(0, sx-(dist_to_beacon-y_dist)),
+                             min(area_size, sx+(dist_to_beacon-y_dist)))
+                # if y == 7:
+                #     print(y, sx, dist_to_beacon-y_dist, max(0, sx-(dist_to_beacon-y_dist)),
+                #           min(area_size, sx+(dist_to_beacon-y_dist)), excluded_squares[y])
 
-        for vy in allowed_squares_fine:
-            for vx in allowed_squares_fine[vy]:
-                print("Possible location at", vx, vy, "frequency=", max_dimension*vx+vy)
+
+for y in range(area_size+1):
+    if excluded_squares[y] != [[0, area_size]]:
+        # Assume it's just a discontinuity of 1, otherwise not quite sure how to deal with this
+        if len(excluded_squares[y]) == 2 and excluded_squares[y][0][1]+2 == excluded_squares[y][1][0]:
+            x = excluded_squares[y][0][1]+1
+            print("Found possible location at", x, y, "frequency=",area_size*x+y)
+        else:
+            print("Row", y, "=", excluded_squares[y])
