@@ -10,7 +10,6 @@ import re
 # Update: by adding the valve pruning step below, we can finish the full problem on the scale of a few
 # minutes, which isn't great but at least works.
 
-large_val = 999999999
 max_time = 30
 
 valves = {}
@@ -99,6 +98,6 @@ while True:
 
     # Also, try moving to each of the neighbors
     for n in valves[cur_loc][1]:
-        if (n, cur_t+1, cur_score, cur_list) not in visited_points:
+        if n != prev_loc and (n, cur_t+1, cur_score, cur_list) not in visited_points:
             open_set.add((n, cur_loc, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
             visited_points.add((n, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
