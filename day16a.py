@@ -7,8 +7,8 @@ import re
 # be with a different time, score, set of valves open). So really it's not A* at all but just straight-up
 # brute force. Hope it still works in a reasonable amount of time.
 #
-# Update: nope! it runs ok on the example, but can't make it through the full problem. So we may need
-# a better approach.
+# Update: by adding the valve pruning step below, we can finish the full problem on the scale of a few
+# minutes, which isn't great but at least works.
 
 large_val = 999999999
 max_time = 30
@@ -22,10 +22,49 @@ with open("day16.txt") as infile:
             valve_name = result.group(1)
             valve_rate = int(result.group(2))
             tunnels = result.group(3).split(", ")
-            valves[valve_name] = (valve_rate, tunnels)
+            valves[valve_name] = (valve_rate, {})
+            for t in tunnels:
+                valves[valve_name][1][t] = 1
         else:
             print("Found malformed line", line)
 
+# Next, clean up the valve graph. A *lot* of the valves (especially in the full problem) have flow rate 0
+# and only two tunnels, so we can remove them from the graph entirely and just increase the cost of moving
+# between the two nodes that actually matter.
+valve_set = list(valves.keys())
+for v in valve_set:
+    # since we might have already deleted this one
+    if v not in valves:
+        continue
+    if valves[v][0] == 0 and len(valves[v][1]) == 2:
+        valves_to_delete = [v]
+        endpoints = []
+        total_cost = 2
+        for v2 in valves[v][1]:
+            while True:
+                if not (valves[v2][0] == 0 and len(valves[v2][1]) == 2):
+                    endpoints.append(v2)
+                    break
+                valves_to_delete.append(v2)
+                if list(valves[v2][1].keys())[0] in valves_to_delete:
+                    v2 = list(valves[v2][1].keys())[1]
+                    total_cost += 1
+                else:
+                    v2 = list(valves[v2][1].keys())[0]
+                    total_cost += 1
+        for i in range(0, 2):
+            v2 = endpoints[i]
+            for v3 in list(valves[v2][1].keys()):
+                if v3 in valves_to_delete:
+                    del valves[v2][1][v3]
+            valves[v2][1][endpoints[1-i]] = total_cost
+                
+        for v2 in valves_to_delete:
+            del valves[v2]
+
+        # print("Established new path from", endpoints[0], "to", endpoints[1], "at cost",
+        #       total_cost, "removing valves", valves_to_delete)
+            
 # Elements in the open set are 5-tuples: current location, previous location, current time, current score,
 # list of opened valves. We keep track of the previous location so we can reject paths where we go somewhere
 # and then immediately go back, since those are obviously bad
@@ -61,5 +100,5 @@ while True:
     # Also, try moving to each of the neighbors
     for n in valves[cur_loc][1]:
         if (n, cur_t+1, cur_score, cur_list) not in visited_points:
-            open_set.add((n, cur_loc, cur_t+1, cur_score, cur_list))
-            visited_points.add((n, cur_t+1, cur_score, cur_list))
+            open_set.add((n, cur_loc, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
+            visited_points.add((n, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
