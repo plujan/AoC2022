@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
-# This uses a rather brute-force approach where, each time we build a robot, we consider all possible options
-# for what to build next (ore and clay always, obsidian if and only if we have clay, geode if and only if we
-# have obsidian). It runs pretty slowly but it does work.
+# This starts with a rather brute-force approach where, each time we build a robot, we consider all possible
+# options for what to build next (ore and clay always, obsidian if and only if we have clay, geode if and only
+# if we have obsidian). We can improve this greatly, however, by not building more ore robots than the maximum
+# ore cost of any robot, since we can only build one robot per turn; this reduces the number of choices
+# considerably.
 
 import re
 
@@ -25,6 +27,7 @@ with open("day19.txt") as infile:
 
 print("Read in", len(blueprints), "blueprints")
 quality_number = 0
+max_time = 24
 for b in blueprints:
     # Run the simulation.
 
@@ -39,7 +42,14 @@ for b in blueprints:
     
     state_pool.append((list(start_state), 0)) # build ore robot first
     state_pool.append((list(start_state), 1)) # build clay robot first
-                      
+
+    # There's no point in building more ore robots than the maximum ore cost of any individual robot, since we can only ever
+    # build one robot per turn.
+    max_ore = max(b["ore"], b["clay"], b["obsidian"][0], b["geode"][0])
+    # Similarly no point in building more clay robots than the clay cost of an obsidian robot.
+    max_clay = b["obsidian"][1]
+    # Could do the same for the obsidian robots but I doubt we'll ever get there anyway.
+    
     while state_pool:
         (cur_state, next_target) = state_pool.pop()
 
@@ -67,16 +77,23 @@ for b in blueprints:
 
         for i in [1, 2, 3, 4]:
             cur_state[i] += cur_state[i+4]
-        if cur_state[0] == 24:
+        if cur_state[0] == max_time:
             if cur_state[4] > cur_best_outcome:
-                print("Best so far for blueprint", b["id"], "is", cur_state[4], "geodes")
+                print("Best so far for blueprint", b["id"], "is", cur_state[4], "geode"+("" if cur_state[4]==1 else "s"))
                 cur_best_outcome = cur_state[4]
         else:
             # Otherwise, build robot if we did, and if so choose a new target
             if build_item > 0:
                 cur_state[build_item] += 1
-                state_pool.append((list(cur_state), 0))
-                state_pool.append((list(cur_state), 1))
+                
+                # don't build an ore if we already have the maximum number of ore robots we could ever need
+                if cur_state[5] < max_ore:
+                    state_pool.append((list(cur_state), 0))
+
+                # similarly, don't build a clay if we already have the maximum number of clay robots we could ever need
+                if cur_state[6] < b["obsidian"][1]:
+                    state_pool.append((list(cur_state), 1))
+                    
                 # can only target an obsidian robot if we are making clay
                 if cur_state[6] > 0:
                     state_pool.append((list(cur_state), 2))
