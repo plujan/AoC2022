@@ -1,10 +1,7 @@
 #!/usr/bin/python3
 
-# This starts with a rather brute-force approach where, each time we build a robot, we consider all possible
-# options for what to build next (ore and clay always, obsidian if and only if we have clay, geode if and only
-# if we have obsidian). We can improve this greatly, however, by not building more ore robots than the maximum
-# ore cost of any robot, since we can only build one robot per turn; this reduces the number of choices
-# considerably.
+# This uses the same approach as part 1, since we can finish in a reasonable time even when going up to 32
+# minutes. This just changes the number of blueprints read and the formula for calculating the result.
 
 import re
 
@@ -24,10 +21,13 @@ with open("day19.txt") as infile:
             blueprints.append(this_blueprint)
         else:
             print("Failed to parse blueprint line")
+        # Consider only the first three blueprints.
+        if len(blueprints) == 3:
+            break
 
 print("Read in", len(blueprints), "blueprints")
-quality_number = 0
-max_time = 24
+best_product = 1
+max_time = 32
 for b in blueprints:
     # Run the simulation.
 
@@ -85,7 +85,7 @@ for b in blueprints:
             # Otherwise, build robot if we did, and if so choose a new target
             if build_item > 0:
                 cur_state[build_item] += 1
-                
+
                 # don't build an ore if we already have the maximum number of ore robots we could ever need
                 if cur_state[5] < max_ore:
                     state_pool.append((list(cur_state), 0))
@@ -93,10 +93,11 @@ for b in blueprints:
                 # similarly, don't build a clay if we already have the maximum number of clay robots we could ever need
                 if cur_state[6] < max_clay:
                     state_pool.append((list(cur_state), 1))
-                    
+
                 # can only target an obsidian robot if we are making clay
                 if cur_state[6] > 0:
                     state_pool.append((list(cur_state), 2))
+                    
                 # similarly, can only target a geode robot if we are making obsidian
                 if cur_state[7] > 0:
                     state_pool.append((list(cur_state), 3))
@@ -106,6 +107,6 @@ for b in blueprints:
 
     # Done! Increase the quality number
     print("Finished blueprint", b["id"], "with best of", cur_best_outcome)
-    quality_number += b["id"]*cur_best_outcome
+    best_product *= cur_best_outcome
 
-print("Overall quality level is", quality_number)
+print("Overall product is", best_product)
