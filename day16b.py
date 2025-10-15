@@ -2,13 +2,17 @@
 
 import re
 
-# A first attempt at porting the solution we used for part 1 to part 2. This basically uses the same
-# technique but with branches for both our choice and the elephant's choice. Not surprisingly, it's
-# way too slow to be able to solve the full problem.
+# This is a first attempt to port the "new" solution for part 1 to part 2. It uses basically the same method,
+# but with moving both you and the elephant.
+#
+# Unfortunately, while this solves the sample problem nearly instantly still, the full problem increases the
+# number of combinations enough that we don't get close to finishing in a reasonable time. Time to think some
+# more...
 
 max_time = 26
 
 valves = {}
+useful_valves = []
 
 with open("day16.txt") as infile:
     for line in infile:
@@ -20,145 +24,170 @@ with open("day16.txt") as infile:
             valves[valve_name] = (valve_rate, {})
             for t in tunnels:
                 valves[valve_name][1][t] = 1
+            if valve_rate > 0:
+                useful_valves.append(valve_name)
         else:
             print("Found malformed line", line)
 
-# Next, clean up the valve graph. A *lot* of the valves (especially in the full problem) have flow rate 0
-# and only two tunnels, so we can remove them from the graph entirely and just increase the cost of moving
-# between the two nodes that actually matter.
-valve_set = list(valves.keys())
-for v in valve_set:
-    # since we might have already deleted this one
-    if v not in valves:
-        continue
-    if valves[v][0] == 0 and len(valves[v][1]) == 2:
-        valves_to_delete = [v]
-        endpoints = []
-        total_cost = 2
-        for v2 in valves[v][1]:
-            while True:
-                if not (valves[v2][0] == 0 and len(valves[v2][1]) == 2):
-                    endpoints.append(v2)
-                    break
-                valves_to_delete.append(v2)
-                if list(valves[v2][1].keys())[0] in valves_to_delete:
-                    v2 = list(valves[v2][1].keys())[1]
-                    total_cost += 1
-                else:
-                    v2 = list(valves[v2][1].keys())[0]
-                    total_cost += 1
-        for i in range(0, 2):
-            v2 = endpoints[i]
-            for v3 in list(valves[v2][1].keys()):
-                if v3 in valves_to_delete:
-                    del valves[v2][1][v3]
-            valves[v2][1][endpoints[1-i]] = total_cost
-                
-        for v2 in valves_to_delete:
-            del valves[v2]
 
-        # print("Established new path from", endpoints[0], "to", endpoints[1], "at cost",
-        #       total_cost, "removing valves", valves_to_delete)
+# Now, find the shortest path between each pair of valves. We have to do this for all valves, not just
+# the useful valves, since we start on a non-useful valve.
+valve_distance = {}
+for v1 in valves.keys():
+    dist = {}
+    unvisited = set()
+    for v2 in valves.keys():
+        dist[v2] = 99999
+        unvisited.add(v2)
+    # Starting cost of 1 to account for the time of turning the valve so we don't have to add 1 each time
+    dist[v1] = 1
 
-n_useful_valves = 0
-for v in valves:
-    if valves[v][0] > 0:
-        n_useful_valves += 1
+    while len(unvisited) > 0:
+        # Find the current member of the unvisited set with the lowest distance.
+        cur_min = 999
+        cur_node = None
+        for v2 in unvisited:
+            if dist[v2] < cur_min:
+                cur_node = v2
+                cur_min = dist[v2]
+
+        # Explore all the connections of this node. If the distance from cur_node + 1 is less than the
+        # current best distance to that node, then update the best distance. (+1 because all tunnels in
+        # this problem have a value of 1)
+        for conn in valves[cur_node][1]:
+            new_dist = dist[cur_node] + 1
+            if new_dist < dist[conn]:
+                dist[conn] = new_dist
+
+        unvisited.remove(cur_node)
+    valve_distance[v1] = dist
+
+# print(valve_distance)
+
+# Now, let's get to actual solving.
+state_pool = []
+start_valve = 'AA'
+
+# Each element of the state pool has the following format:
+# - current set of UNOPENED valves
+# - time
+# - score
+# - flow rate
+# - next target for us
+# - distance to next target for us
+# - next target for elephant
+# - distance to next target for elephant
+
+# We probably could do something clever to account for the fact that swapping us and the elephant
+# results in the same solution, but this seems like a lot of work
+for v1 in useful_valves:
+    for v2 in useful_valves:
+        if v1 == v2:
+            continue
+        state_pool.append((set(useful_valves), 0, 0, 0, v1, valve_distance[start_valve][v1],
+                           v2, valve_distance[start_valve][v2]))
+
+current_best = 0
+n_proc = 0
+while len(state_pool) > 0:
+    n_proc += 1
+    if (n_proc % 10000) == 0:
+        print("Processed", n_proc, "states; size of state pool is", len(state_pool))
+        print(state_pool)
+        sys.exit(1)
+    (cur_valves, cur_t, cur_score, cur_flow, next_target_us, target_distance_us,
+     next_target_ele, target_distance_ele) = state_pool.pop()
+    
+    # The code here gets a little clonky because I can't figure out a way to elegantly handle the case where
+    # we arrive at our target at the same time as the elephant, only a clonky way
+
+    old_flow = cur_flow
+    if target_distance_us < target_distance_ele:
+        cur_t += target_distance_us
+        cur_valves.remove(next_target_us)
+        cur_score += cur_flow*target_distance_us
+        cur_flow += valves[next_target_us][0]
+    elif target_distance_ele < target_distance_us:
+        cur_t += target_distance_ele
+        cur_valves.remove(next_target_ele)
+        cur_score += cur_flow*target_distance_ele
+        cur_flow += valves[next_target_ele][0]
+    else:
+        cur_t += target_distance_us
+        cur_valves.remove(next_target_us)
+        cur_valves.remove(next_target_ele)
+        cur_score += cur_flow*target_distance_us
+        cur_flow += valves[next_target_us][0]
+        cur_flow += valves[next_target_ele][0]
         
-# Elements in the open set are 8-tuples: your current location, previous location, and time; elephant's
-# current location, previous location, and time; current score; and list of opened valves. We keep track of
-# the previous location so we can reject paths where we go somewhere and then immediately go back, since those
-# are obviously bad. Also, since we've changed the graph around, you may be able to move while the elephant is
-# still moving, so we have to track the times separately. This is kind of a pain but I hope it's still better
-# than leaving the graph with 4x as many nodes.
-
-open_set = set()
-visited_points = set()
-open_set.add(('AA', '', 0, 'AA', '', 0, 0, ()))
-visited_points.add(('AA', 'AA', 0, 0, 0, ()))
-cur_best_score = 0
-
-while True:
-    # if we've exhausted all paths, we're done
-    if len(open_set) == 0:
-        print("Best score is", cur_best_score)
-        break
-
-    # Since we don't have a heuristic, we don't really care which element we take
-    (you_loc, you_prev, you_t, ele_loc, ele_prev, ele_t, cur_score, cur_list) = open_set.pop()
-
-    if (min(you_t, ele_t) >= max_time - 1) or len(cur_list) == n_useful_valves:
-        # Either we're out of time, or we've opened all (useful) valves, so check our score and finish
-        if cur_score > cur_best_score:
-            cur_best_score = cur_score
-        continue
-    
-    # Now, one of us or the elephant might still be moving, in which case we only need to consider
-    # moving the other one. Of course we might need both
-
-    if (you_t < ele_t):
-        # Try opening the valve, if it's useful and we haven't already opened it
-        if valves[you_loc][0] != 0 and you_loc not in cur_list:
-            open_set.add((you_loc, you_loc, you_t+1, ele_loc, ele_prev, ele_t,
-                          cur_score+valves[you_loc][0]*(max_time-you_t-1),
-                          cur_list + (you_loc,)))
-
-        # Also, try moving to each of the neighbors
-        for n in valves[you_loc][1]:
-            if n != you_prev and (n, ele_loc, you_t+1, ele_t, cur_score, cur_list) not in visited_points:
-                open_set.add((n, you_loc, you_t+valves[you_loc][1][n],
-                              ele_loc, ele_prev, ele_t, cur_score, cur_list))
-                visited_points.add((n, ele_loc, you_t+valves[you_loc][1][n],
-                                    ele_t, cur_score, cur_list))
-
-    elif (ele_t < you_t):
-        # Same deal with the elephant
-        if valves[ele_loc][0] != 0 and ele_loc not in cur_list:
-            open_set.add((you_loc, you_prev, you_t, ele_loc, ele_loc, ele_t+1,
-                          cur_score+valves[ele_loc][0]*(max_time-ele_t-1),
-                          cur_list+(ele_loc,)))
-        for n in valves[ele_loc][1]:
-            if n != ele_prev and (you_loc, n, you_t, ele_t+1, cur_score, cur_list) not in visited_points:
-                open_set.add((you_loc, you_prev, you_t,
-                              n, ele_loc, ele_t+valves[ele_loc][1][n],
-                              cur_score, cur_list))
-                visited_points.add((you_loc, n, you_t, ele_t+valves[ele_loc][1][n],
-                                    cur_score, cur_list))
-
-    elif (you_t == ele_t):
-        # ugh
-        for ny in [you_loc]+list(valves[you_loc][1]):
-            if ny == you_loc:
-                if not (valves[you_loc][0] != 0 and you_loc not in cur_list):
-                    continue
-                new_score = cur_score+valves[you_loc][0]*(max_time-you_t-1)
-                new_list = cur_list+(you_loc,)
-                new_you_t = you_t+1
-                new_you_loc = you_loc
-                new_you_prev = you_loc
-            else:
-                if ny == you_prev:
-                    continue
-                new_score = cur_score
-                new_list = cur_list
-                new_you_t = you_t+valves[you_loc][1][ny]
-                new_you_loc = ny
-                new_you_prev = you_loc
+    if cur_t >= max_time:
+        # We're done, correct our score for the stuff we shouldn't have gotten
+        cur_score -= old_flow*(cur_t-max_time)
+        if cur_score > current_best:
+            current_best = cur_score
+    else:
+        if len(cur_valves) == 0:
+            # We've opened all valves; just increase the score as appropriate and finish up. This is a little
+            # more complicated because if we've finished for one mover but not the other, we need to account
+            # for their last move too.
+            cur_score += cur_flow*(max_time-cur_t)
+            if target_distance_us < target_distance_ele:
+                extra_t = cur_t + (target_distance_ele-target_distance_us)
+                if extra_t < max_time:
+                    cur_score += valves[next_target_ele][0]*(max_time-extra_t)
+            elif target_distance_ele < target_distance_us:
+                extra_t = cur_t + (target_distance_us-target_distance_ele)
+                if extra_t < max_time:
+                    cur_score += valves[next_target_us][0]*(max_time-extra_t)
+            # Fortunately we don't have to deal with the case where they both finish at the same time, since
+            # in that case everyone is accounted for.
             
-            for ne in [ele_loc]+list(valves[ele_loc][1]):
-                if ne == ele_loc:
-                    if not (valves[ele_loc][0] != 0 and ele_loc not in new_list):
+            if cur_score > current_best:
+                current_best = cur_score
+        else:
+            # Consider all possible next targets for either us, the elephant, or both
+            if target_distance_us < target_distance_ele:
+                # If there's only one valve left, it's already claimed by the elephant, so just send us to nowhere
+                if len(cur_valves) == 1:
+                    state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, start_valve, 999999,
+                                       next_target_ele, target_distance_ele-target_distance_us))
+                
+                for v in cur_valves:
+                    if v == next_target_ele:
                         continue
-                    open_set.add((new_you_loc, new_you_prev, new_you_t,
-                                  ele_loc, ele_loc, ele_t+1,
-                                  new_score+valves[ele_loc][0]*(max_time-ele_t-1),
-                                  new_list+(ele_loc,)))
-                elif ne != ele_prev and (new_you_loc, ne, new_you_t, ele_t+valves[ele_loc][1][ne],
-                                         new_score, new_list) not in visited_points:
-                    open_set.add((new_you_loc, new_you_prev, new_you_t,
-                                  ne, ele_loc, ele_t+valves[ele_loc][1][ne],
-                                  new_score, new_list))
-                    visited_points.add((new_you_loc, ne, new_you_t, ele_t+valves[ele_loc][1][ne],
-                                        new_score, new_list))
+                    state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, v, valve_distance[next_target_us][v],
+                                       next_target_ele, target_distance_ele-target_distance_us))
+            elif target_distance_ele < target_distance_us:
+                if len(cur_valves) == 1:
+                    state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, next_target_us,
+                                       target_distance_us-target_distance_ele, start_valve, 999999))
+                
+                for v in cur_valves:
+                    if v == next_target_us:
+                        continue
+                    state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, next_target_us,
+                                       target_distance_us-target_distance_ele, v, valve_distance[next_target_ele][v]))
+            else:
+                # Here, the corner case is even sneakier -- if there's only one valve left, it won't get claimed at all
+                # because of the criterion that we send us and the elephant to different places. So send whoever's closest
+                # there and the other person nowhere.
+                
+                for v1 in cur_valves:
+                    if len(cur_valves) == 1:
+                        if valve_distance[next_target_us][v1] <= valve_distance[next_target_ele][v1]:
+                            state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, v1,
+                                               valve_distance[next_target_us][v1], start_valve, 999999))
+                        else:
+                            state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, start_valve, 999999,
+                                               v1, valve_distance[next_target_ele][v1]))
 
-    
+                    for v2 in cur_valves:
+                        if v1 == v2:
+                            continue
+                        state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, v1,
+                                           valve_distance[next_target_us][v1], v2, valve_distance[next_target_ele][v2]))
+            # case where two are equal
+        # pick new targets
+    # while state pool nonempty
+
+print("Best score is", current_best)
