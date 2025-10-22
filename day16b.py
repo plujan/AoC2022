@@ -2,12 +2,13 @@
 
 import re
 
-# This is a first attempt to port the "new" solution for part 1 to part 2. It uses basically the same method,
+# This is a port of the "new" solution for part 1 to part 2. It uses basically the same method,
 # but with moving both you and the elephant.
 #
-# Unfortunately, while this solves the sample problem nearly instantly still, the full problem increases the
-# number of combinations enough that we don't get close to finishing in a reasonable time. Time to think some
-# more...
+# I tried optimizing it, but it didn't work out, so I did some math and realized that with the small
+# optimization of not duplicating solutions that are the same except for swapping us and the elephant, we can
+# actually run in about 1.5hr, which is not great, but feasible. And fortunately we did get the right answer
+# the first time!
 
 max_time = 26
 
