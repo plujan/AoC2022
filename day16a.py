@@ -2,17 +2,21 @@
 
 import re
 
-# This uses the same A* algorithm we've used for other puzzles, but without a heuristic function or a way
-# to keep track of which paths we can exclude (since even if we're at a node we've explored before, it may
-# be with a different time, score, set of valves open). So really it's not A* at all but just straight-up
-# brute force. Hope it still works in a reasonable amount of time.
+# This uses a very different approach to my initial attempt at this problem. What we do is:
+# 1) Focus only on the valves which actually are useful to open
+# 2) Use Dijkstra's algorithm to determine the shortest paths between each pair of valves in this set
+# 3) Each time we need to make a decision, add the set of all other valves that we haven't opened yet
 #
-# Update: by adding the valve pruning step below, we can finish the full problem on the scale of a few
-# minutes, which isn't great but at least works.
+# This results in a much larger number of choices at each decision point, but many fewer choices
+# total, so hopefully it will be a net gain. Let's find out! The goal with this method is to build a
+# working solution to part 2, but I want to see if it works on part 1 first.
+#
+# Result: much faster than the old way!
 
 max_time = 30
 
 valves = {}
+useful_valves = []
 
 with open("day16.txt") as infile:
     for line in infile:
@@ -24,80 +28,84 @@ with open("day16.txt") as infile:
             valves[valve_name] = (valve_rate, {})
             for t in tunnels:
                 valves[valve_name][1][t] = 1
+            if valve_rate > 0:
+                useful_valves.append(valve_name)
         else:
             print("Found malformed line", line)
 
-# Next, clean up the valve graph. A *lot* of the valves (especially in the full problem) have flow rate 0
-# and only two tunnels, so we can remove them from the graph entirely and just increase the cost of moving
-# between the two nodes that actually matter.
-valve_set = list(valves.keys())
-for v in valve_set:
-    # since we might have already deleted this one
-    if v not in valves:
-        continue
-    if valves[v][0] == 0 and len(valves[v][1]) == 2:
-        valves_to_delete = [v]
-        endpoints = []
-        total_cost = 2
-        for v2 in valves[v][1]:
-            while True:
-                if not (valves[v2][0] == 0 and len(valves[v2][1]) == 2):
-                    endpoints.append(v2)
-                    break
-                valves_to_delete.append(v2)
-                if list(valves[v2][1].keys())[0] in valves_to_delete:
-                    v2 = list(valves[v2][1].keys())[1]
-                    total_cost += 1
-                else:
-                    v2 = list(valves[v2][1].keys())[0]
-                    total_cost += 1
-        for i in range(0, 2):
-            v2 = endpoints[i]
-            for v3 in list(valves[v2][1].keys()):
-                if v3 in valves_to_delete:
-                    del valves[v2][1][v3]
-            valves[v2][1][endpoints[1-i]] = total_cost
-                
-        for v2 in valves_to_delete:
-            del valves[v2]
 
-        # print("Established new path from", endpoints[0], "to", endpoints[1], "at cost",
-        #       total_cost, "removing valves", valves_to_delete)
-            
-# Elements in the open set are 5-tuples: current location, previous location, current time, current score,
-# list of opened valves. We keep track of the previous location so we can reject paths where we go somewhere
-# and then immediately go back, since those are obviously bad
-open_set = set()
-visited_points = set()
-open_set.add(('AA', '', 0, 0, ()))
-visited_points.add(('AA', 0, 0, ()))
-cur_best_score = 0
+# Now, find the shortest path between each pair of valves. We have to do this for all valves, not just
+# the useful valves, since we start on a non-useful valve.
+valve_distance = {}
+for v1 in valves.keys():
+    dist = {}
+    unvisited = set()
+    for v2 in valves.keys():
+        dist[v2] = 99999
+        unvisited.add(v2)
+    dist[v1] = 0
 
-while True:
-    # if we've exhausted all paths, we're done
-    if len(open_set) == 0:
-        print("Best score is", cur_best_score)
-        break
+    while len(unvisited) > 0:
+        # Find the current member of the unvisited set with the lowest distance.
+        cur_min = 999
+        cur_node = None
+        for v2 in unvisited:
+            if dist[v2] < cur_min:
+                cur_node = v2
+                cur_min = dist[v2]
 
-    # Since we don't have a heuristic, we don't really care which element we take
-    (cur_loc, prev_loc, cur_t, cur_score, cur_list) = open_set.pop()
+        # Explore all the connections of this node. If the distance from cur_node + 1 is less than the
+        # current best distance to that node, then update the best distance. (+1 because all tunnels in
+        # this problem have a value of 1)
+        for conn in valves[cur_node][1]:
+            new_dist = dist[cur_node] + 1
+            if new_dist < dist[conn]:
+                dist[conn] = new_dist
 
-    if (cur_t >= max_time - 1):
-        # No time left to do anything else, check our score and finish up
-        if cur_score > cur_best_score:
-            cur_best_score = cur_score
-        continue
+        unvisited.remove(cur_node)
+    valve_distance[v1] = dist
 
-    # Try opening the valve, if it's useful and we haven't already opened it
-    if valves[cur_loc][0] != 0 and cur_loc not in cur_list:
-        if cur_score < -1:
-            print("Opening valve",cur_loc,"at time",cur_t+1,"For score",valves[cur_loc][0]*(max_time-cur_t-1),
-                  "adding to current score",cur_score)
-        open_set.add((cur_loc, cur_loc, cur_t+1, cur_score+valves[cur_loc][0]*(max_time-cur_t-1),
-                         cur_list + (cur_loc,)))
+# print(valve_distance)
 
-    # Also, try moving to each of the neighbors
-    for n in valves[cur_loc][1]:
-        if n != prev_loc and (n, cur_t+1, cur_score, cur_list) not in visited_points:
-            open_set.add((n, cur_loc, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
-            visited_points.add((n, cur_t+valves[cur_loc][1][n], cur_score, cur_list))
+# Now, let's get to actual solving.
+state_pool = []
+start_valve = 'AA'
+
+# Each element of the state pool has the following format:
+# - current set of UNOPENED valves
+# - time
+# - score
+# - flow rate
+# - next target
+# - distance to next target
+
+for v in useful_valves:
+    state_pool.append((set(useful_valves), 0, 0, 0, v, valve_distance[start_valve][v]+1))
+
+current_best = 0
+while len(state_pool) > 0:
+    (cur_valves, cur_t, cur_score, cur_flow, next_target, target_distance) = state_pool.pop()
+
+    cur_t += target_distance
+    cur_valves.remove(next_target)
+    cur_score += cur_flow*target_distance
+
+    if cur_t >= max_time:
+        # We're done, correct our score for the stuff we shouldn't have gotten
+        cur_score -= cur_flow*(cur_t-max_time)
+        if cur_score > current_best:
+            current_best = cur_score
+    else:
+        cur_flow += valves[next_target][0]
+        if len(cur_valves) == 0:
+            # We've opened all valves; just increase the score as appropriate and finish up
+            cur_score += cur_flow*(max_time-cur_t)
+            if cur_score > current_best:
+                current_best = cur_score
+        else:
+            # Consider all possible next targets
+            for v in cur_valves:
+                # We need the +1 to account for the time to open the valve when we get there
+                state_pool.append((set(cur_valves), cur_t, cur_score, cur_flow, v, valve_distance[next_target][v]+1))
+
+print("Best score is", current_best)
